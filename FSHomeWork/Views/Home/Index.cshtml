@@ -1,0 +1,185 @@
+﻿@using FSHomeWork.Models.Entities
+@{
+    ViewData["Title"] = "Home Page";
+}
+
+@* <div class="text-center"> *@
+@*     <h1 class="display-4">Welcome</h1> *@
+@*     <p>Learn about <a href="https://docs.microsoft.com/aspnet/core">building Web apps with ASP.NET Core</a>.</p> *@
+@* </div> *@
+
+<div id="loginBlock" data-bind="ifnot:isAuthenticated">
+    Введите почту:
+    <br />
+    <input id="email" type="text" data-bind="textInput:email"/>
+    <br />
+    Введите пароль:
+    <br />
+    <input id="password" type="password" data-bind="textInput:password"/>
+    <br />
+    <input id="loginBtn" type="button" value="Войти" />
+</div>
+<div id="listOfUsersBlock" data-bind="if:isAuthenticated">
+    @foreach (User user in ViewBag.Users)
+    {
+        <button id="@user.UserId" class="user btn btn-primary">
+            @user.Email
+        </button>
+        <br>
+
+
+        
+        
+    }
+</div>
+<br />
+
+ 
+    <div id="header"></div><br />
+ 
+    <div id="inputForm" data-bind="if:isAuthenticated">
+        <input type="text" id="message" />
+        <input type="button" id="sendBtn" value="Отправить" />
+    </div>
+    <div class="testing">Сообщения</div>
+    <div id="chatroom"></div>
+
+@section Scripts {
+    <script >
+        let token;
+        const hubConnection = new signalR.HubConnectionBuilder()
+                    .withUrl("/chat",{ accessTokenFactory: () => token})
+                    // .withUrl("/chat",options=>{options.AccessTokenProvider = () => Task.FromResult(`${token}`);})
+                    .build();
+        
+        hubConnection.on("Receive", function (message, userName) {
+ 
+            // создаем элемент <b> для имени пользователя
+            let userNameElem = document.createElement("b");
+            userNameElem.appendChild(document.createTextNode(userName + ": "));
+ 
+            // создает элемент <p> для сообщения пользователя
+            let elem = document.createElement("p");
+            elem.appendChild(userNameElem);
+            elem.appendChild(document.createTextNode(message));
+ 
+            var firstElem = document.getElementById("chatroom").firstChild;
+            document.getElementById("chatroom").insertBefore(elem, firstElem);
+        });
+        let to;
+        document.getElementById("sendBtn").addEventListener("click", function (e) {
+            console.log("sendBtn clicked")
+            let message = document.getElementById("message").value;
+            
+            hubConnection.invoke("Send", message, to);
+        })
+        let viewModel ={
+            email: ko.observable("first@gmail.com"),
+            password:ko.observable("password"),
+            accessToken:ko.observable(""),
+            isAuthenticated:ko.observable(false)
+            
+        };
+        ko.applyBindings(viewModel);
+        
+        const loginBlock = document.getElementById("loginBlock")
+        const loginButton = document.getElementById("loginBtn")
+        const emailBlock = document.getElementById("email")
+        let messages;
+        
+        
+        function fetchToken(email,password){
+            return fetch("http://localhost:5000/Home/Token/",{
+               method:'POST',
+               headers: {
+                 'Content-Type': 'application/json',
+               },
+               body: JSON.stringify({email:email,password:password})
+           }).then(response=>{
+               if(response.ok){
+                   viewModel.isAuthenticated(true)
+                  return response.json()
+               }
+               
+               return response.text().then(error => {
+                   const e = new Error("Someting went wrong!!!")
+                   e.data = error
+                   throw e;
+               })
+           })
+        }
+        loginButton.addEventListener("click", async ()=>{
+            const email = document.getElementById("email").value;
+            const password = document.getElementById("password").value;
+            token = await fetchToken(email,password)
+            .then(data=>{
+                return data['token']
+            }).catch(error =>{
+                let fragment = document.createDocumentFragment();
+                const warning = document.createTextNode(`${error.data}`);
+                const escape = document.createElement("br");
+                fragment.appendChild(warning)
+                fragment.appendChild(escape)
+                loginBlock.insertBefore(fragment,emailBlock)
+                console.log(error)
+                
+            })
+            await addUserButtonsListeners()
+
+        })
+        
+        
+        
+         // boxes = document.querySelectorAll('.user');
+         // boxes.forEach(box => {
+         //    box.onclick = function(){console.log("clicked")};
+         // });
+         function showUsers(messages){
+            const div = document.getElementById('chatroom');
+            div.innerHTML = "";
+            messages.forEach(message => {
+                const fragment = document.createDocumentFragment();
+                let userNameElem = document.createElement("b");
+                userNameElem.appendChild(document.createTextNode(message.writer + ": "));
+                let elem = document.createElement("p");
+                elem.appendChild(userNameElem);
+                elem.appendChild(document.createTextNode(message.text));
+                div.appendChild(elem)
+            })
+         }
+         
+         async function addUserButtonsListeners(){
+            const userButtons = document.getElementsByClassName("user")
+            const bearerToken = `Bearer ${token}`
+            console.log(bearerToken)
+            Array.from(userButtons).forEach(function(element) {
+              element.addEventListener('click', async ()=>{
+                  to = element.firstChild.data.trim()
+                  const url = 'http://localhost:5000/home/messages'
+                  let receiverId = parseInt(element.id)
+                  await fetch(url,{
+                      method:"POST",
+                  body:receiverId,
+                      headers:{
+                          'Content-Type': 'application/json;charset=utf-8;',
+                          'Authorization': bearerToken
+                      }
+                  }).then(async (data)=>{
+                      const json = await data.json()
+                      messages = json
+                      showUsers(json)
+                      console.log(json)
+                  })
+              });
+            });  
+            
+            document.getElementById("sendBtn").addEventListener("click", function (e) {
+                        console.log("sendBtn clicked")
+                        let message = document.getElementById("message").value;
+                        
+                        hubConnection.invoke("Send", message, to);
+                    })
+            hubConnection.start();
+        }
+    </script>
+}
